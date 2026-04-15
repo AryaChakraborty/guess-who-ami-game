@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getSocket, ensureConnected, disconnectSocket } from "@/lib/socket";
+import { getSoundManager } from "@/lib/sounds";
 import {
   RoomState,
   ChatMessage,
@@ -15,6 +16,7 @@ import ChatPanel from "@/components/ChatPanel";
 import Scoreboard from "@/components/Scoreboard";
 import Timer from "@/components/Timer";
 import GuessInput from "@/components/GuessInput";
+import SoundControl from "@/components/SoundControl";
 
 export default function RoomPage() {
   const params = useParams();
@@ -36,6 +38,8 @@ export default function RoomPage() {
   const [joinError, setJoinError] = useState("");
   const [currentTurnPlayerId, setCurrentTurnPlayerId] = useState<string | null>(null);
   const [turnState, setTurnState] = useState<TurnState | null>(null);
+  const prevTimerRef = useRef(180);
+  const tickToggleRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,13 +74,31 @@ export default function RoomPage() {
         setReveals([]);
         setCurrentTurnPlayerId(roomState.currentTurnPlayerId);
         setTurnState(roomState.turn);
+        getSoundManager().stopLobbyMusic();
+        getSoundManager().play("game-start");
       });
 
       socket.on(
         "turn-update",
         (data: { currentTurnPlayerId: string; turn: TurnState }) => {
-          setCurrentTurnPlayerId(data.currentTurnPlayerId);
-          setTurnState(data.turn);
+          setCurrentTurnPlayerId((prev) => {
+            if (prev !== data.currentTurnPlayerId) {
+              // Turn changed to a new player
+              if (data.currentTurnPlayerId === storedPlayerId) {
+                getSoundManager().play("your-turn");
+              }
+            }
+            return data.currentTurnPlayerId;
+          });
+          setTurnState((prev) => {
+            // Phase transitions
+            if (prev?.phase !== data.turn.phase) {
+              if (data.turn.phase === "voting") {
+                getSoundManager().play("question");
+              }
+            }
+            return data.turn;
+          });
         }
       );
 
@@ -90,6 +112,15 @@ export default function RoomPage() {
 
       socket.on("timer-tick", (data: { remaining: number }) => {
         setTimerRemaining(data.remaining);
+        // Tick-tock for last 10 seconds
+        if (data.remaining <= 10 && data.remaining > 0) {
+          getSoundManager().play("timer-warning");
+        } else if (data.remaining > 10) {
+          // Normal tick-tock alternation
+          tickToggleRef.current = !tickToggleRef.current;
+          getSoundManager().play(tickToggleRef.current ? "tick" : "tock");
+        }
+        prevTimerRef.current = data.remaining;
       });
 
       socket.on(
@@ -99,6 +130,11 @@ export default function RoomPage() {
           correct: boolean;
           celebrity?: { name: string; image: string };
         }) => {
+          if (data.correct) {
+            getSoundManager().play("correct");
+          } else {
+            getSoundManager().play("wrong");
+          }
           if (
             data.playerId === storedPlayerId &&
             data.correct &&
@@ -120,6 +156,7 @@ export default function RoomPage() {
           setReveals(data.reveals);
           setMessages(data.roomState.messages);
           setTurnState(null);
+          getSoundManager().play("round-end");
         }
       );
 
@@ -130,6 +167,7 @@ export default function RoomPage() {
           setFinalScores(data.finalScores);
           setMessages(data.roomState.messages);
           setTurnState(null);
+          getSoundManager().play("game-over");
         }
       );
 
@@ -214,6 +252,7 @@ export default function RoomPage() {
   };
 
   const handleSubmitVote = (vote: "yes" | "no") => {
+    getSoundManager().play("vote");
     getSocket().emit("submit-vote", { roomId, playerId, vote });
   };
 
@@ -224,10 +263,12 @@ export default function RoomPage() {
   };
 
   const handleSkip = () => {
+    getSoundManager().play("skip");
     getSocket().emit("skip-turn", { roomId, playerId });
   };
 
   const handleLeave = () => {
+    getSoundManager().stopLobbyMusic();
     disconnectSocket();
     router.push("/");
   };
@@ -281,10 +322,14 @@ export default function RoomPage() {
 
   // ── Lobby State ────────────────────────────────────────────────────────
   if (room.state === "lobby") {
+    getSoundManager().startLobbyMusic();
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <div className="w-full max-w-lg">
           <div className="text-center mb-6">
+            <div className="flex justify-end mb-2">
+              <SoundControl />
+            </div>
             <div className="text-4xl mb-2">🎭</div>
             <h1 className="text-2xl font-bold text-white">Game Lobby</h1>
           </div>
@@ -549,12 +594,15 @@ export default function RoomPage() {
             round={room.round}
             totalRounds={room.totalRounds}
           />
-          <button
-            onClick={handleLeave}
-            className="text-gray-500 hover:text-red-400 text-sm transition-colors"
-          >
-            Leave
-          </button>
+          <div className="flex items-center gap-2">
+            <SoundControl />
+            <button
+              onClick={handleLeave}
+              className="text-gray-500 hover:text-red-400 text-sm transition-colors"
+            >
+              Leave
+            </button>
+          </div>
         </div>
       </header>
 
