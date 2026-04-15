@@ -58,6 +58,8 @@ interface Room {
   usedCelebrityIds: Set<number>;
   roundStartTime: number | null;
   disconnectTimers: Map<string, NodeJS.Timeout>; // playerId -> cleanup timer
+  turnOrder: string[]; // player IDs in turn order
+  currentTurnIndex: number;
 }
 
 // ─── State ───────────────────────────────────────────────────────────────────
@@ -100,6 +102,8 @@ function getRoomState(room: Room) {
     totalRounds: room.totalRounds,
     timerRemaining: room.timerRemaining,
     messages: room.messages.slice(-100),
+    turnOrder: room.turnOrder,
+    currentTurnPlayerId: room.turnOrder[room.currentTurnIndex] || null,
   };
 }
 
@@ -224,9 +228,68 @@ function checkAllGuessed(room: Room) {
   }
 }
 
+function advanceTurn(room: Room) {
+  if (room.state !== "playing") return;
+
+  // Find next player who hasn't guessed correctly
+  const totalPlayers = room.turnOrder.length;
+  for (let i = 1; i <= totalPlayers; i++) {
+    const nextIndex = (room.currentTurnIndex + i) % totalPlayers;
+    const nextPlayerId = room.turnOrder[nextIndex];
+    const nextPlayer = room.players.get(nextPlayerId);
+    if (nextPlayer && !nextPlayer.hasGuessedCorrectly) {
+      room.currentTurnIndex = nextIndex;
+      const turnMsg: ChatMessage = {
+        id: uuidv4(),
+        playerId: "system",
+        playerName: "System",
+        text: `It's ${nextPlayer.name}'s turn to guess!`,
+        type: "system",
+        timestamp: Date.now(),
+      };
+      room.messages.push(turnMsg);
+      io.to(room.id).emit("new-message", turnMsg);
+      io.to(room.id).emit("turn-change", {
+        currentTurnPlayerId: nextPlayerId,
+      });
+      return;
+    }
+  }
+  // If we get here, everyone has guessed — checkAllGuessed will handle it
+}
+
 function removePlayerFromRoom(room: Room, playerId: string) {
   const player = room.players.get(playerId);
+
+  // If it was this player's turn, advance before removing
+  const wasCurrentTurn =
+    room.turnOrder[room.currentTurnIndex] === playerId &&
+    room.state === "playing";
+
   room.players.delete(playerId);
+
+  // Remove from turn order and fix index
+  const turnIdx = room.turnOrder.indexOf(playerId);
+  if (turnIdx !== -1) {
+    room.turnOrder.splice(turnIdx, 1);
+    if (room.turnOrder.length > 0) {
+      if (turnIdx < room.currentTurnIndex) {
+        room.currentTurnIndex--;
+      }
+      room.currentTurnIndex = room.currentTurnIndex % room.turnOrder.length;
+    }
+  }
+
+  if (wasCurrentTurn && room.turnOrder.length > 0 && room.state === "playing") {
+    // Announce new turn after removal
+    const nextPlayerId = room.turnOrder[room.currentTurnIndex];
+    const nextPlayer = room.players.get(nextPlayerId);
+    if (nextPlayer && !nextPlayer.hasGuessedCorrectly) {
+      io.to(room.id).emit("turn-change", { currentTurnPlayerId: nextPlayerId });
+    } else {
+      advanceTurn(room);
+    }
+  }
 
   if (room.players.size === 0) {
     stopTimer(room);
@@ -309,6 +372,8 @@ io.on("connection", (socket: Socket) => {
         usedCelebrityIds: new Set(),
         roundStartTime: null,
         disconnectTimers: new Map(),
+        turnOrder: [],
+        currentTurnIndex: 0,
       };
 
       rooms.set(roomId, room);
@@ -443,14 +508,17 @@ io.on("connection", (socket: Socket) => {
 
     room.state = "playing";
     room.round = 1;
+    room.turnOrder = Array.from(room.players.keys());
+    room.currentTurnIndex = 0;
     assignCelebrities(room);
     startTimer(room);
 
+    const firstPlayer = room.players.get(room.turnOrder[0]);
     const systemMsg: ChatMessage = {
       id: uuidv4(),
       playerId: "system",
       playerName: "System",
-      text: `Game started! Round 1 of ${room.totalRounds}. Ask yes/no questions to guess your celebrity!`,
+      text: `Game started! Round 1 of ${room.totalRounds}. ${firstPlayer?.name} goes first!`,
       type: "system",
       timestamp: Date.now(),
     };
@@ -470,14 +538,17 @@ io.on("connection", (socket: Socket) => {
 
     room.round++;
     room.state = "playing";
+    room.turnOrder = Array.from(room.players.keys());
+    room.currentTurnIndex = 0;
     assignCelebrities(room);
     startTimer(room);
 
+    const firstPlayer = room.players.get(room.turnOrder[0]);
     const systemMsg: ChatMessage = {
       id: uuidv4(),
       playerId: "system",
       playerName: "System",
-      text: `Round ${room.round} of ${room.totalRounds} started!`,
+      text: `Round ${room.round} of ${room.totalRounds} started! ${firstPlayer?.name} goes first!`,
       type: "system",
       timestamp: Date.now(),
     };
@@ -532,6 +603,12 @@ io.on("connection", (socket: Socket) => {
       const player = room.players.get(data.playerId);
       if (!player || player.hasGuessedCorrectly) return;
 
+      // Enforce turn order: only the current turn player can guess
+      if (room.turnOrder[room.currentTurnIndex] !== data.playerId) {
+        callback({ correct: false });
+        return;
+      }
+
       const celebrity = celebrities.find((c) => c.id === player.celebrityId);
       if (!celebrity) return;
 
@@ -572,6 +649,11 @@ io.on("connection", (socket: Socket) => {
 
         callback({ correct: true, celebrityName: celebrity.name });
         checkAllGuessed(room);
+
+        // Advance turn (if round didn't end from checkAllGuessed)
+        if (room.state === "playing") {
+          advanceTurn(room);
+        }
       } else {
         const wrongMsg: ChatMessage = {
           id: uuidv4(),
@@ -584,6 +666,9 @@ io.on("connection", (socket: Socket) => {
         room.messages.push(wrongMsg);
         io.to(room.id).emit("new-message", wrongMsg);
         callback({ correct: false });
+
+        // Wrong guess also ends your turn
+        advanceTurn(room);
       }
     }
   );
@@ -596,6 +681,8 @@ io.on("connection", (socket: Socket) => {
 
     room.state = "lobby";
     room.round = 0;
+    room.turnOrder = [];
+    room.currentTurnIndex = 0;
     room.usedCelebrityIds.clear();
     room.messages = [];
     for (const player of room.players.values()) {

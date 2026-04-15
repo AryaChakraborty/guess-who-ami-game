@@ -16,6 +16,8 @@ export interface RoomState {
   totalRounds: number;
   timerRemaining: number;
   messages: ChatMessage[];
+  turnOrder: string[];
+  currentTurnPlayerId: string | null;
 }
 
 export interface ChatMessage {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { getSocket, ensureConnected, disconnectSocket } from "@/lib/socket";
 import {
@@ -33,27 +33,31 @@ export default function RoomPage() {
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState("");
   const [joinError, setJoinError] = useState("");
+  const [currentTurnPlayerId, setCurrentTurnPlayerId] = useState<string | null>(null);
 
-  const socketInitialized = useRef(false);
-
-  const setupSocketAndRejoin = useCallback(async () => {
-    if (socketInitialized.current) return;
-    socketInitialized.current = true;
+  useEffect(() => {
+    let cancelled = false;
 
     const storedPlayerId = sessionStorage.getItem("playerId") || "";
     setPlayerId(storedPlayerId);
 
-    try {
-      const socket = await ensureConnected();
-      setConnected(true);
+    async function init() {
+      try {
+        const socket = await ensureConnected();
 
-      // Set up event listeners
-      socket.on("connect", () => setConnected(true));
-      socket.on("disconnect", () => setConnected(false));
+        // If cleanup ran while we were awaiting, don't register anything
+        if (cancelled) return;
+
+        setConnected(true);
+
+        // Set up event listeners
+        socket.on("connect", () => setConnected(true));
+        socket.on("disconnect", () => setConnected(false));
 
       socket.on("room-update", (roomState: RoomState) => {
         setRoom(roomState);
         setMessages(roomState.messages);
+        setCurrentTurnPlayerId(roomState.currentTurnPlayerId);
       });
 
       socket.on("game-started", (roomState: RoomState) => {
@@ -61,7 +65,15 @@ export default function RoomPage() {
         setMessages(roomState.messages);
         setRevealedCelebrity(null);
         setReveals([]);
+        setCurrentTurnPlayerId(roomState.currentTurnPlayerId);
       });
+
+      socket.on(
+        "turn-change",
+        (data: { currentTurnPlayerId: string }) => {
+          setCurrentTurnPlayerId(data.currentTurnPlayerId);
+        }
+      );
 
       socket.on("new-message", (msg: ChatMessage) => {
         setMessages((prev) => [...prev, msg]);
@@ -128,6 +140,7 @@ export default function RoomPage() {
             setRoom(response.roomState);
             setMessages(response.roomState.messages);
             setTimerRemaining(response.roomState.timerRemaining);
+            setCurrentTurnPlayerId(response.roomState.currentTurnPlayerId);
           } else {
             console.error("Rejoin failed:", response.error);
             setJoinError(
@@ -142,13 +155,12 @@ export default function RoomPage() {
         err instanceof Error ? err.message : "Failed to connect to server"
       );
     }
-  }, [roomId]);
+    }
 
-  useEffect(() => {
-    setupSocketAndRejoin();
+    init();
 
     return () => {
-      // Clean up listeners but do NOT disconnect (grace period on server handles it)
+      cancelled = true;
       const socket = getSocket();
       socket.off("connect");
       socket.off("disconnect");
@@ -157,12 +169,12 @@ export default function RoomPage() {
       socket.off("new-message");
       socket.off("timer-tick");
       socket.off("guess-result");
+      socket.off("turn-change");
       socket.off("round-end");
       socket.off("game-end");
       socket.off("error-message");
-      socketInitialized.current = false;
     };
-  }, [setupSocketAndRejoin]);
+  }, [roomId]);
 
   const isHost = room?.hostId === playerId;
   const currentPlayer = room?.players.find((p) => p.id === playerId);
@@ -196,7 +208,6 @@ export default function RoomPage() {
 
   const handleLeave = () => {
     disconnectSocket();
-    socketInitialized.current = false;
     router.push("/");
   };
 
@@ -217,7 +228,6 @@ export default function RoomPage() {
           <button
             onClick={() => {
               disconnectSocket();
-              socketInitialized.current = false;
               router.push("/");
             }}
             className="px-6 py-2 bg-purple-600 hover:bg-purple-500 rounded-xl text-white transition-all"
@@ -547,6 +557,11 @@ export default function RoomPage() {
             onGuess={handleGuess}
             disabled={room.state !== "playing"}
             hasGuessed={currentPlayer?.hasGuessedCorrectly || false}
+            isMyTurn={currentTurnPlayerId === playerId}
+            currentTurnPlayerName={
+              room.players.find((p) => p.id === currentTurnPlayerId)?.name ||
+              null
+            }
           />
         </div>
 
