@@ -11,8 +11,19 @@ export default function Home() {
   const [mode, setMode] = useState<"home" | "join">("home");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const handleCreateClick = () => {
+    if (!playerName.trim()) {
+      setError("Please enter your name");
+      return;
+    }
+    setError("");
+    setShowConfirm(true);
+  };
 
   const handleCreate = async () => {
+    setShowConfirm(false);
     if (!playerName.trim()) {
       setError("Please enter your name");
       return;
@@ -145,14 +156,14 @@ export default function Home() {
                   setError("");
                 }}
                 onKeyDown={(e) =>
-                  e.key === "Enter" && playerName.trim() && handleCreate()
+                  e.key === "Enter" && playerName.trim() && handleCreateClick()
                 }
                 maxLength={20}
                 className="w-full px-4 py-3 bg-[#0f0f1a] border border-[#25254a] rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all"
               />
 
               <button
-                onClick={handleCreate}
+                onClick={handleCreateClick}
                 disabled={loading}
                 className="w-full py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 rounded-xl font-semibold text-white transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -249,6 +260,35 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* Confirmation Modal */}
+      {showConfirm && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1a1a2e] rounded-2xl p-6 border border-[#25254a] w-full max-w-sm shadow-2xl animate-slide-up">
+            <div className="text-center mb-4">
+              <div className="text-4xl mb-2">🎭</div>
+              <h2 className="text-xl font-bold text-white">Create a Room?</h2>
+              <p className="text-gray-400 text-sm mt-2">
+                You&apos;ll be the host as <span className="text-purple-400 font-semibold">{playerName.trim()}</span>. Share the room code with friends so they can join.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="flex-1 py-2.5 bg-[#25254a] hover:bg-[#2f2f5a] rounded-xl font-medium text-gray-300 transition-all border border-[#35356a]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreate}
+                className="flex-1 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 rounded-xl font-semibold text-white transition-all"
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

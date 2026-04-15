@@ -8,6 +8,7 @@ import {
   ChatMessage,
   CelebrityReveal,
   FinalScore,
+  TurnState,
 } from "@/lib/types";
 import GameGrid from "@/components/GameGrid";
 import ChatPanel from "@/components/ChatPanel";
@@ -34,6 +35,7 @@ export default function RoomPage() {
   const [error, setError] = useState("");
   const [joinError, setJoinError] = useState("");
   const [currentTurnPlayerId, setCurrentTurnPlayerId] = useState<string | null>(null);
+  const [turnState, setTurnState] = useState<TurnState | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,6 +60,7 @@ export default function RoomPage() {
         setRoom(roomState);
         setMessages(roomState.messages);
         setCurrentTurnPlayerId(roomState.currentTurnPlayerId);
+        setTurnState(roomState.turn);
       });
 
       socket.on("game-started", (roomState: RoomState) => {
@@ -66,14 +69,20 @@ export default function RoomPage() {
         setRevealedCelebrity(null);
         setReveals([]);
         setCurrentTurnPlayerId(roomState.currentTurnPlayerId);
+        setTurnState(roomState.turn);
       });
 
       socket.on(
-        "turn-change",
-        (data: { currentTurnPlayerId: string }) => {
+        "turn-update",
+        (data: { currentTurnPlayerId: string; turn: TurnState }) => {
           setCurrentTurnPlayerId(data.currentTurnPlayerId);
+          setTurnState(data.turn);
         }
       );
+
+      socket.on("vote-tick", (data: { remaining: number }) => {
+        setTurnState((prev) => prev ? { ...prev, voteTimerRemaining: data.remaining } : prev);
+      });
 
       socket.on("new-message", (msg: ChatMessage) => {
         setMessages((prev) => [...prev, msg]);
@@ -110,6 +119,7 @@ export default function RoomPage() {
           setRoom(data.roomState);
           setReveals(data.reveals);
           setMessages(data.roomState.messages);
+          setTurnState(null);
         }
       );
 
@@ -119,6 +129,7 @@ export default function RoomPage() {
           setRoom(data.roomState);
           setFinalScores(data.finalScores);
           setMessages(data.roomState.messages);
+          setTurnState(null);
         }
       );
 
@@ -141,6 +152,7 @@ export default function RoomPage() {
             setMessages(response.roomState.messages);
             setTimerRemaining(response.roomState.timerRemaining);
             setCurrentTurnPlayerId(response.roomState.currentTurnPlayerId);
+            setTurnState(response.roomState.turn);
           } else {
             console.error("Rejoin failed:", response.error);
             setJoinError(
@@ -169,7 +181,8 @@ export default function RoomPage() {
       socket.off("new-message");
       socket.off("timer-tick");
       socket.off("guess-result");
-      socket.off("turn-change");
+      socket.off("turn-update");
+      socket.off("vote-tick");
       socket.off("round-end");
       socket.off("game-end");
       socket.off("error-message");
@@ -196,14 +209,22 @@ export default function RoomPage() {
     setFinalScores([]);
   };
 
-  const handleSendMessage = (text: string, type: "question" | "answer") => {
-    getSocket().emit("send-message", { roomId, playerId, text, type });
+  const handleAskQuestion = (question: string) => {
+    getSocket().emit("ask-question", { roomId, playerId, question });
+  };
+
+  const handleSubmitVote = (vote: "yes" | "no") => {
+    getSocket().emit("submit-vote", { roomId, playerId, vote });
   };
 
   const handleGuess = (guess: string) => {
     getSocket().emit("submit-guess", { roomId, playerId, guess }, () => {
       // Response handled via guess-result event
     });
+  };
+
+  const handleSkip = () => {
+    getSocket().emit("skip-turn", { roomId, playerId });
   };
 
   const handleLeave = () => {
@@ -555,6 +576,7 @@ export default function RoomPage() {
           />
           <GuessInput
             onGuess={handleGuess}
+            onSkip={handleSkip}
             disabled={room.state !== "playing"}
             hasGuessed={currentPlayer?.hasGuessedCorrectly || false}
             isMyTurn={currentTurnPlayerId === playerId}
@@ -562,6 +584,7 @@ export default function RoomPage() {
               room.players.find((p) => p.id === currentTurnPlayerId)?.name ||
               null
             }
+            turn={turnState}
           />
         </div>
 
@@ -571,9 +594,11 @@ export default function RoomPage() {
           <div className="flex-1 min-h-[300px] lg:min-h-0">
             <ChatPanel
               messages={messages}
-              onSendMessage={handleSendMessage}
               currentPlayerId={playerId}
               disabled={room.state !== "playing"}
+              turn={turnState}
+              onAskQuestion={handleAskQuestion}
+              onSubmitVote={handleSubmitVote}
             />
           </div>
         </div>

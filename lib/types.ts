@@ -7,6 +7,22 @@ export interface PlayerState {
   hasGuessedCorrectly: boolean;
 }
 
+export interface Vote {
+  playerId: string;
+  playerName: string;
+  vote: "yes" | "no";
+}
+
+export interface TurnState {
+  phase: "asking" | "voting" | "results" | "guessing";
+  askingPlayerId: string;
+  askingPlayerName: string;
+  question: string | null;
+  votes: Vote[];
+  voteTimerRemaining: number;
+  totalVoters: number; // how many need to vote (everyone except asker)
+}
+
 export interface RoomState {
   id: string;
   hostId: string;
@@ -18,6 +34,7 @@ export interface RoomState {
   messages: ChatMessage[];
   turnOrder: string[];
   currentTurnPlayerId: string | null;
+  turn: TurnState | null;
 }
 
 export interface ChatMessage {
