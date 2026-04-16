@@ -239,24 +239,57 @@ export default function Home() {
           )}
         </div>
 
-        {/* How to play */}
-        <div className="mt-8 text-center animate-slide-up">
-          <h3 className="text-gray-400 text-sm font-semibold mb-3 uppercase tracking-wider">
-            How to Play
+        {/* Game Rules */}
+        <div className="mt-8 animate-slide-up">
+          <h3 className="text-gray-400 text-sm font-semibold mb-3 uppercase tracking-wider text-center">
+            Game Rules
           </h3>
-          <div className="grid grid-cols-3 gap-3 text-xs text-gray-500">
-            <div className="bg-[#1a1a2e] rounded-xl p-3 border border-[#25254a]">
-              <div className="text-2xl mb-1">👀</div>
-              <p>See everyone&apos;s celebrity except yours</p>
-            </div>
-            <div className="bg-[#1a1a2e] rounded-xl p-3 border border-[#25254a]">
-              <div className="text-2xl mb-1">❓</div>
-              <p>Ask yes/no questions in chat</p>
-            </div>
-            <div className="bg-[#1a1a2e] rounded-xl p-3 border border-[#25254a]">
-              <div className="text-2xl mb-1">🎯</div>
-              <p>Guess your celebrity to score points!</p>
-            </div>
+          <div className="bg-[#1a1a2e] rounded-2xl p-5 border border-[#25254a] space-y-3">
+            <Rule
+              icon="👥"
+              title="Everyone sees each other's celebrity — except their own"
+              body="Your celebrity floats above your name. Figure out who you are from what others can see."
+            />
+            <Rule
+              icon="🔁"
+              title="Take turns asking yes/no questions"
+              body="On your turn, ask one yes/no question to narrow down your celebrity."
+            />
+            <Rule
+              icon="🗳️"
+              title="Everyone votes on your question"
+              body="Players have 20 seconds to vote yes or no. Results show as a live poll."
+            />
+            <Rule
+              icon="🎯"
+              title="After the poll, guess — or skip"
+              body="Guess right, score points. Wrong, or skip, and your turn passes to the next player."
+            />
+            <Rule
+              icon="🔥"
+              title="Close guesses get retries"
+              body="If your guess is at least 70% similar to the real name, you get up to 3 tries."
+            />
+            <Rule
+              icon="🚫"
+              title="Guess once and you're done asking"
+              body="You can also skip asking and guess straight away — but once you guess, no more questions this round."
+            />
+            <Rule
+              icon="🏁"
+              title="Last player standing has one final shot"
+              body="If they fail the final guess, the round ends with 0 points for them."
+            />
+            <Rule
+              icon="⏱️"
+              title="60 seconds per round, 3 rounds total"
+              body="Faster correct guesses earn bigger time bonuses."
+            />
+            <Rule
+              icon="👑"
+              title="Host controls the room"
+              body="If the host leaves, the game ends and everyone is sent home."
+            />
           </div>
         </div>
       </div>
@@ -290,5 +323,25 @@ export default function Home() {
         </div>
       )}
     </main>
+  );
+}
+
+function Rule({
+  icon,
+  title,
+  body,
+}: {
+  icon: string;
+  title: string;
+  body: string;
+}) {
+  return (
+    <div className="flex gap-3 items-start">
+      <span className="text-xl leading-none mt-0.5 select-none">{icon}</span>
+      <div className="flex-1">
+        <p className="text-white text-sm font-medium leading-snug">{title}</p>
+        <p className="text-gray-500 text-xs mt-0.5 leading-relaxed">{body}</p>
+      </div>
+    </div>
   );
 }

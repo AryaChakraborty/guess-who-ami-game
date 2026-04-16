@@ -385,8 +385,25 @@ function endGame(room: Room) {
   });
 }
 
+function closeRoomHostLeft(room: Room, hostName: string) {
+  stopTimer(room);
+  clearTurnTimers(room);
+  for (const timer of room.disconnectTimers.values()) {
+    clearTimeout(timer);
+  }
+  // Notify all remaining players before tearing down
+  io.to(room.id).emit("host-left", { hostName });
+  // Detach all sockets and clear mappings
+  for (const player of room.players.values()) {
+    playerRoomMap.delete(player.socketId);
+  }
+  rooms.delete(room.id);
+  console.log(`Room ${room.id} deleted (host ${hostName} left)`);
+}
+
 function removePlayerFromRoom(room: Room, playerId: string) {
   const player = room.players.get(playerId);
+  const wasHost = room.hostId === playerId;
   const wasCurrentTurn =
     room.turnOrder[room.currentTurnIndex] === playerId &&
     room.state === "playing";
@@ -419,10 +436,10 @@ function removePlayerFromRoom(room: Room, playerId: string) {
     return;
   }
 
-  // Transfer host if needed
-  if (room.hostId === playerId) {
-    const newHost = room.players.values().next().value;
-    if (newHost) room.hostId = newHost.id;
+  // Host left — close the room for everyone remaining.
+  if (wasHost) {
+    closeRoomHostLeft(room, player?.name || "Host");
+    return;
   }
 
   if (player) {

@@ -38,6 +38,7 @@ export default function RoomPage() {
   const [joinError, setJoinError] = useState("");
   const [currentTurnPlayerId, setCurrentTurnPlayerId] = useState<string | null>(null);
   const [turnState, setTurnState] = useState<TurnState | null>(null);
+  const [hostLeftBy, setHostLeftBy] = useState<string | null>(null);
   const prevTimerRef = useRef(60);
   const tickToggleRef = useRef(false);
 
@@ -176,6 +177,11 @@ export default function RoomPage() {
         setTimeout(() => setError(""), 3000);
       });
 
+      socket.on("host-left", (data: { hostName: string }) => {
+        getSoundManager().stopLobbyMusic();
+        setHostLeftBy(data.hostName);
+      });
+
       // Now rejoin the room to re-associate this socket with our player
       socket.emit(
         "rejoin-room",
@@ -224,6 +230,7 @@ export default function RoomPage() {
       socket.off("round-end");
       socket.off("game-end");
       socket.off("error-message");
+      socket.off("host-left");
     };
   }, [roomId]);
 
@@ -289,6 +296,33 @@ export default function RoomPage() {
   const copyRoomCode = () => {
     navigator.clipboard.writeText(roomId);
   };
+
+  // ── Host Left State ─────────────────────────────────────────────────────
+  if (hostLeftBy) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="bg-[#1a1a2e] rounded-2xl p-6 border border-[#25254a] w-full max-w-sm shadow-2xl animate-slide-up text-center">
+          <div className="text-4xl mb-3">👋</div>
+          <h2 className="text-xl font-bold text-white mb-2">
+            The host has left
+          </h2>
+          <p className="text-gray-400 text-sm mb-5">
+            <span className="text-purple-400 font-semibold">{hostLeftBy}</span>{" "}
+            left the room, so the game has ended.
+          </p>
+          <button
+            onClick={() => {
+              disconnectSocket();
+              router.push("/");
+            }}
+            className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 rounded-xl font-semibold text-white transition-all"
+          >
+            Back to Home
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // ── Error State (room not found / connection failed) ───────────────────
   if (joinError) {
