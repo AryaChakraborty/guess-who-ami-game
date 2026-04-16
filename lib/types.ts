@@ -21,6 +21,10 @@ export interface TurnState {
   votes: Vote[];
   voteTimerRemaining: number;
   totalVoters: number; // how many need to vote (everyone except asker)
+  guessAttempts: number; // wrong-but-close guesses used so far this turn
+  maxGuessAttempts: number; // hard limit (3)
+  isFinalTurn: boolean; // only one player left who hasn't guessed; failing ends the round
+  hasAsked: boolean; // whether the current player has already submitted their question
 }
 
 export interface RoomState {

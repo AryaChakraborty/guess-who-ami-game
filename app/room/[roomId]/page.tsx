@@ -257,9 +257,22 @@ export default function RoomPage() {
   };
 
   const handleGuess = (guess: string) => {
-    getSocket().emit("submit-guess", { roomId, playerId, guess }, () => {
-      // Response handled via guess-result event
-    });
+    getSocket().emit(
+      "submit-guess",
+      { roomId, playerId, guess },
+      (res: {
+        correct: boolean;
+        closeGuess?: boolean;
+        attemptsLeft?: number;
+      }) => {
+        // Correct/wrong sounds are played via the guess-result event which
+        // fires for everyone. We only handle close-guess feedback here since
+        // close-but-retry isn't broadcast via guess-result.
+        if (!res.correct && res.closeGuess) {
+          getSoundManager().play("wrong");
+        }
+      }
+    );
   };
 
   const handleSkip = () => {

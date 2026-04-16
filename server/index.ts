@@ -3,7 +3,7 @@ import { createServer } from "http";
 import { Server, Socket } from "socket.io";
 import cors from "cors";
 import { v4 as uuidv4 } from "uuid";
-import celebrities, { checkGuess } from "../lib/celebrities";
+import celebrities, { checkGuess, guessSimilarity } from "../lib/celebrities";
 
 const app = express();
 app.use(cors());
@@ -57,6 +57,8 @@ interface TurnPhaseState {
   voteTimer: NodeJS.Timeout | null;
   voteTimerRemaining: number;
   resultsTimer: NodeJS.Timeout | null;
+  guessAttempts: number; // wrong-but-close guesses used so far this turn
+  hasAsked: boolean; // whether the current player already asked their question
 }
 
 interface Room {
@@ -89,6 +91,8 @@ const TOTAL_ROUNDS = 3;
 const VOTE_TIMER = 20;
 const RESULTS_DISPLAY_TIME = 4; // seconds to show results before moving to guessing
 const DISCONNECT_GRACE_MS = 15000;
+const MAX_GUESS_ATTEMPTS = 3;
+const CLOSE_GUESS_THRESHOLD = 0.7; // 70% similarity grants a retry
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -110,7 +114,16 @@ function freshTurnPhase(): TurnPhaseState {
     voteTimer: null,
     voteTimerRemaining: VOTE_TIMER,
     resultsTimer: null,
+    guessAttempts: 0,
+    hasAsked: false,
   };
+}
+
+function isLastPlayerStanding(room: Room): boolean {
+  const unguessed = Array.from(room.players.values()).filter(
+    (p) => !p.hasGuessedCorrectly
+  );
+  return unguessed.length === 1;
 }
 
 function clearTurnTimers(room: Room) {
@@ -139,6 +152,10 @@ function getTurnState(room: Room) {
     votes: Array.from(room.turnPhase.votes.values()),
     voteTimerRemaining: room.turnPhase.voteTimerRemaining,
     totalVoters: room.players.size - 1,
+    guessAttempts: room.turnPhase.guessAttempts,
+    maxGuessAttempts: MAX_GUESS_ATTEMPTS,
+    isFinalTurn: isLastPlayerStanding(room),
+    hasAsked: room.turnPhase.hasAsked,
   };
 }
 
@@ -590,6 +607,7 @@ io.on("connection", (socket: Socket) => {
       if (!player) return;
 
       room.turnPhase.question = data.question.trim();
+      room.turnPhase.hasAsked = true;
 
       // Add as chat message
       const msg: ChatMessage = {
@@ -650,12 +668,17 @@ io.on("connection", (socket: Socket) => {
     }
   );
 
-  // SUBMIT GUESS — only during guessing phase of your turn
+  // SUBMIT GUESS — during asking or guessing phase of your turn
   socket.on(
     "submit-guess",
     (
       data: { roomId: string; playerId: string; guess: string },
-      callback: (r: { correct: boolean; celebrityName?: string }) => void
+      callback: (r: {
+        correct: boolean;
+        celebrityName?: string;
+        closeGuess?: boolean;
+        attemptsLeft?: number;
+      }) => void
     ) => {
       const room = rooms.get(data.roomId);
       if (!room || room.state !== "playing") return;
@@ -666,7 +689,11 @@ io.on("connection", (socket: Socket) => {
         callback({ correct: false });
         return;
       }
-      if (room.turnPhase.phase !== "guessing") {
+      // Allow guess during asking OR guessing phases (rule 3)
+      if (
+        room.turnPhase.phase !== "asking" &&
+        room.turnPhase.phase !== "guessing"
+      ) {
         callback({ correct: false });
         return;
       }
@@ -677,6 +704,8 @@ io.on("connection", (socket: Socket) => {
       const correct = checkGuess(data.guess, celebrity);
 
       if (correct) {
+        // Cancel any in-flight voting/results timers (edge case: guess during asking)
+        clearTurnTimers(room);
         player.hasGuessedCorrectly = true;
         player.guessedAt = Date.now();
 
@@ -697,20 +726,58 @@ io.on("connection", (socket: Socket) => {
         callback({ correct: true, celebrityName: celebrity.name });
         checkAllGuessed(room);
         if (room.state === "playing") advanceTurn(room);
-      } else {
-        const wrongMsg: ChatMessage = {
-          id: uuidv4(),
-          playerId: data.playerId,
-          playerName: player.name,
-          text: `Guessed "${data.guess}" — Wrong!`,
-          type: "guess-wrong",
-          timestamp: Date.now(),
-        };
-        room.messages.push(wrongMsg);
-        io.to(room.id).emit("new-message", wrongMsg);
-        callback({ correct: false });
+        return;
+      }
 
-        // Wrong guess ends your turn
+      // Wrong guess — check similarity for retry eligibility
+      const sim = guessSimilarity(data.guess, celebrity);
+      room.turnPhase.guessAttempts += 1;
+      const attemptsLeft = MAX_GUESS_ATTEMPTS - room.turnPhase.guessAttempts;
+
+      const wrongMsg: ChatMessage = {
+        id: uuidv4(),
+        playerId: data.playerId,
+        playerName: player.name,
+        text: `Guessed "${data.guess}" — Wrong!`,
+        type: "guess-wrong",
+        timestamp: Date.now(),
+      };
+      room.messages.push(wrongMsg);
+      io.to(room.id).emit("new-message", wrongMsg);
+
+      const canRetry = sim >= CLOSE_GUESS_THRESHOLD && attemptsLeft > 0;
+
+      if (canRetry) {
+        emitSystemMsg(
+          room,
+          `🔥 So close, ${player.name}! Try again (${attemptsLeft} ${attemptsLeft === 1 ? "try" : "tries"} left)`
+        );
+        // Lock to guessing phase for remaining attempts (no more asking)
+        clearTurnTimers(room);
+        room.turnPhase.phase = "guessing";
+        io.to(room.id).emit("turn-update", {
+          currentTurnPlayerId: room.turnOrder[room.currentTurnIndex],
+          turn: getTurnState(room),
+        });
+        callback({ correct: false, closeGuess: true, attemptsLeft });
+        return;
+      }
+
+      // Wrong and no retry — turn ends
+      callback({ correct: false, closeGuess: false, attemptsLeft: 0 });
+      io.to(room.id).emit("guess-result", {
+        playerId: data.playerId,
+        correct: false,
+      });
+
+      // Rule 1: if this was the last player standing, end the round
+      if (isLastPlayerStanding(room)) {
+        emitSystemMsg(
+          room,
+          `${player.name} couldn't guess. Round ends with no points for them.`
+        );
+        setTimeout(() => endRound(room), 1500);
+      } else {
         advanceTurn(room);
       }
     }
@@ -727,7 +794,17 @@ io.on("connection", (socket: Socket) => {
     if (!player) return;
 
     emitSystemMsg(room, `${player.name} skipped their guess.`);
-    advanceTurn(room);
+
+    // Rule 1: last player standing skipping ends the round
+    if (isLastPlayerStanding(room)) {
+      emitSystemMsg(
+        room,
+        `${player.name} was the last to guess and skipped. Round ends.`
+      );
+      setTimeout(() => endRound(room), 1500);
+    } else {
+      advanceTurn(room);
+    }
   });
 
   // PLAY AGAIN

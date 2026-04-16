@@ -116,11 +116,11 @@ export default function ChatPanel({
       {/* Turn Action Area */}
       {!disabled && turn && (
         <div className="p-3 border-t border-[#25254a] space-y-3">
-          {/* ASKING PHASE — current player types their question */}
+          {/* ASKING PHASE — current player types their question (or skips to guess) */}
           {turn.phase === "asking" && isMyTurn && (
             <div>
               <p className="text-yellow-400 text-xs font-medium mb-2">
-                Your turn! Ask a yes/no question:
+                Your turn! Ask a yes/no question, or guess directly.
               </p>
               <form onSubmit={handleAsk} className="flex gap-2">
                 <input
@@ -138,6 +138,9 @@ export default function ChatPanel({
                   Ask
                 </button>
               </form>
+              <p className="text-gray-600 text-[10px] text-center mt-1 italic">
+                Once you guess (right or wrong), you can&apos;t ask anymore.
+              </p>
             </div>
           )}
 

@@ -669,4 +669,40 @@ export function checkGuess(guess: string, celebrity: Celebrity): boolean {
   return normalize(guess) === normalize(celebrity.name);
 }
 
+// Levenshtein edit distance between two strings
+function levenshtein(a: string, b: string): number {
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  const dp: number[][] = Array.from({ length: a.length + 1 }, () =>
+    new Array(b.length + 1).fill(0)
+  );
+  for (let i = 0; i <= a.length; i++) dp[i][0] = i;
+  for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      if (a[i - 1] === b[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1];
+      } else {
+        dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+      }
+    }
+  }
+  return dp[a.length][b.length];
+}
+
+// Returns similarity between guess and celebrity name in [0, 1]
+export function guessSimilarity(guess: string, celebrity: Celebrity): number {
+  const normalize = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "")
+      .trim();
+  const g = normalize(guess);
+  const name = normalize(celebrity.name);
+  if (g === name) return 1;
+  const maxLen = Math.max(g.length, name.length);
+  if (maxLen === 0) return 0;
+  return 1 - levenshtein(g, name) / maxLen;
+}
+
 export default celebrities;
