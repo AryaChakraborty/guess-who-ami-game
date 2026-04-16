@@ -86,7 +86,7 @@ const rooms = new Map<string, Room>();
 const playerRoomMap = new Map<string, string>();
 
 const AVATARS = ["🧑", "👩", "🧔", "👱", "👲", "🧕", "👨‍🦱", "👩‍🦰"];
-const ROUND_TIMER = 180;
+const ROUND_TIMER = 60;
 const TOTAL_ROUNDS = 3;
 const VOTE_TIMER = 20;
 const RESULTS_DISPLAY_TIME = 4; // seconds to show results before moving to guessing

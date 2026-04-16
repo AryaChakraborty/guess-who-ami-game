@@ -26,7 +26,7 @@ export default function RoomPage() {
   const [room, setRoom] = useState<RoomState | null>(null);
   const [playerId, setPlayerId] = useState<string>("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [timerRemaining, setTimerRemaining] = useState(180);
+  const [timerRemaining, setTimerRemaining] = useState(60);
   const [revealedCelebrity, setRevealedCelebrity] = useState<{
     name: string;
     image: string;
@@ -38,7 +38,7 @@ export default function RoomPage() {
   const [joinError, setJoinError] = useState("");
   const [currentTurnPlayerId, setCurrentTurnPlayerId] = useState<string | null>(null);
   const [turnState, setTurnState] = useState<TurnState | null>(null);
-  const prevTimerRef = useRef(180);
+  const prevTimerRef = useRef(60);
   const tickToggleRef = useRef(false);
 
   useEffect(() => {
